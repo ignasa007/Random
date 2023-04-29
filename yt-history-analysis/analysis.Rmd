@@ -1,0 +1,230 @@
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggthemes)
+library(httr)
+
+oldw <- getOption("warn")
+options(warn = -1)
+```
+
+```{r}
+dates = read.csv(file = "./Data/dates.csv")
+dates$timestamp_posix = strptime(dates$timestamp_posix, "%Y-%m-%d %H:%M:%S")
+head(dates, 5)
+
+meta_data = read.csv(file = "./Data/meta_data.csv")
+head(meta_data, 5)
+
+videos = read.csv(file = "./Data/videos.csv")
+head(videos, 5)
+
+channels = read.csv(file = "./Data/channels.csv")
+head(channels, 5)
+
+categories = read.csv(file = "./Data/categories.csv")
+head(categories, 5)
+
+genres_df = read.csv(file = "./Data/genres.csv", row.names = 1)
+head(genres_df, 5)
+```
+
+```{r}
+daily_count = merge(dates, meta_data, by = "video_id", all.x = TRUE) %>% 
+              mutate(date = as.Date(timestamp_posix)) %>%
+              select(date, yt_or_music) %>% 
+              group_by(date, yt_or_music) %>% 
+              summarise(count = n(), .groups = "drop_last")
+
+names(daily_count) = c("date", "Type", "count")
+head(daily_count, 5)
+```
+
+```{r, fig.height = 4, fig.width = 10}
+ggplot(data = daily_count, aes(x = date, y = count, shape = Type, color = Type)) +
+  geom_point() + 
+  scale_color_manual(values = c("YouTube" = "#ff00ff", "YouTube Music" = "#3399ff")) + 
+  scale_shape_manual(values = c("YouTube" = 17, "YouTube Music" = 16)) +
+  scale_x_date(name = "Date", date_labels = "%b %Y") +
+  scale_y_continuous(name = "Count", breaks = seq(0, 110, 10)) +
+  theme(legend.title = element_text(size = 12),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(margin = margin(t = 12), size = 12),
+        axis.title.y = element_text(margin = margin(r = 12), size = 12))
+```
+
+```{r}
+num_watched = daily_count %>% filter(Type == "YouTube") %>% select("date", "count")
+num_listened = daily_count %>% filter(Type == "YouTube Music") %>% select("date", "count")
+
+daily_count_merged = merge(num_watched, num_listened, by = "date", all = TRUE)
+names(daily_count_merged) = c("date", "yt", "yt_music")
+daily_count_merged[, "yt"][is.na(daily_count_merged[, "yt"])] = 0
+daily_count_merged[, "yt_music"][is.na(daily_count_merged[, "yt_music"])] = 0
+
+head(daily_count_merged, 5)
+```
+
+```{r}
+category_activity = merge(dates, meta_data, by = "video_id", all.x = TRUE) %>% 
+                    mutate(date = as.Date(timestamp_posix)) %>%
+                    select(date, category_id)
+  
+category_activity = merge(category_activity, categories, by = "category_id", all.x = TRUE) %>% 
+                    select(date, category_name)
+
+category_activity = category_activity %>% 
+                    group_by(date, category_name) %>% 
+                    summarise(count = n()) %>% 
+                    arrange(desc(count))
+
+head(category_activity, 5)
+dim(category_activity)
+```
+
+```{r, fig.height = 5, fig.width = 11}
+ggplot(category_activity, aes(x = date, fill = category_name)) + 
+  labs(x = "Date", y = "Count") + 
+  geom_area(stat = "bin", bins = 30) +
+  theme_economist_white() +
+  theme(legend.title = element_blank(), 
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(margin = margin(t = 15), size = 15),
+        axis.title.y = element_text(margin = margin(r = 15), size = 15))
+```
+
+```{r}
+clockPlot <- function (x, col = heat.colors(n), ...) {
+  
+  if (min(x) < 0) {
+    x = x - min(x)
+  }
+  
+  if (max(x)>1) {
+    x = x / max(x)
+  }
+  
+  n = length(x)
+  if (is.null(names(x))) {
+    names(x) = 0:(n-1)
+  }
+  
+  m = 1.05
+  plot(0, type = "n", xlim = c(-m,m), ylim = c(-m,m), axes = F, xlab = "", ylab = "", ...)
+  fig = pi/2 - 2*pi/200*0:200
+  polygon(cos(fig), sin(fig))
+  f2 = .02
+  fig = pi/2 - 2*pi/n*0:n
+  segments((1+f2)*cos(fig), (1+f2)*sin(fig), (1-f2)*cos(fig), (1-f2)*sin(fig))
+  segments(cos(fig), sin(fig), 0, 0, col = "light grey", lty = 3)
+  f1 = -2*pi/n*(0:50)/50
+  
+  sorted = sort(x, decreasing = TRUE)
+  for (i in 1:n) {
+    fig = pi/2 - 2*pi/n*(i-1)
+    b = pi/2 - 2*pi/n*i
+    polygon(c(0, x[i]*cos(fig+f1), 0), c(0, x[i]*sin(fig+f1), 0), col = col[match(x[i], sorted)])
+    f2 = .1
+    text((1+f2)*cos(fig), (1+f2)*sin(fig), names(x)[i])
+  }
+  
+}
+```
+
+```{r}
+hourly_activity = merge(dates, meta_data, by = "video_id", all.x = TRUE) %>% 
+                  mutate(hour = format(timestamp_posix, "%H")) %>%
+                  group_by(hour) %>% 
+                  summarise(count = n()) %>%
+                  arrange(hour)
+
+hourly_activity = na.omit(hourly_activity)
+
+dim(hourly_activity)
+head(hourly_activity, 5)
+
+clockPlot(hourly_activity$count, main = "Hourly Distribution")
+```
+
+```{r}
+weekdays_count = merge(dates, meta_data, by = "video_id", all.X = TRUE) %>%
+                 mutate(date = as.Date(timestamp_posix)) %>%
+                 select(date, video_id)
+
+weekdays_count = weekdays_count %>%
+                 group_by(date) %>%
+                 summarise(count = n())
+
+weekdays_count = weekdays_count %>%
+                 mutate(weekday = weekdays(date)) %>%
+                 select(weekday, count)
+
+weekdays_count = weekdays_count %>%
+                 group_by(weekday) %>% 
+                 summarise(average = mean(count)) %>%
+                 arrange(weekday)
+
+weekdays_count$weekday =  factor(weekdays_count$weekday, 
+                           levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+weekdays_count = weekdays_count[order(weekdays_count$weekday), ]
+
+weekdays_count = na.omit(weekdays_count)
+
+dim(weekdays_count)
+weekdays_count
+```
+
+```{r, fig.height = 3, fig.width = 6}
+ggplot(weekdays_count, aes(x = weekday, y = average)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "cornflowerblue") +
+  labs(x = "Weekday", y = "Average Activity") + 
+  theme(legend.title = element_blank(), 
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(margin = margin(t = 5), size = 15),
+        axis.title.y = element_text(margin = margin(r = 15), size = 15))
+```
+
+```{r}
+music = merge(dates, meta_data, by = "video_id", all.x = TRUE) %>%
+        mutate(date = as.Date(timestamp_posix)) %>%
+        filter(yt_or_music == "YouTube Music") %>%
+        select(video_id, date)
+
+head(music, 5)
+```
+
+```{r}
+music = music %>%
+        mutate(genres = genres_df[music$video_id, "genres"]) %>%
+        filter(genres != "") %>%
+        select(-c(video_id))
+
+head(music, 5)
+```
+
+```{r}
+music = music %>% 
+        mutate(genres = strsplit(genres, split = ", ", fixed = TRUE)) %>%
+        unnest(c(genres)) %>%
+        group_by(date, genres) %>% 
+        summarise(count = n()) %>% 
+        arrange(date)
+
+head(music, 5)
+```
+
+```{r, fig.height = 5, fig.width = 11}
+ggplot(music, aes(x = date, fill = genres)) + 
+  labs(x = "Date", y = "Count") + 
+  geom_area(stat = "bin", bins = 30) +
+  theme_economist_white() +
+  theme(legend.title = element_blank(), 
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(margin = margin(t = 15), size = 15),
+        axis.title.y = element_text(margin = margin(r = 15), size = 15))
+```

@@ -1,0 +1,223 @@
+```{r}
+library(rvest)
+library(stringr)
+library(lubridate)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(tuber)
+library(httr)
+library(jsonlite)
+library(curl)
+
+oldw <- getOption("warn")
+options(warn = -1)
+```
+
+```{r}
+yt_watch_history = read_html("./Takeout/YouTube and YouTube Music/history/watch-history.html")
+
+yt_watch_header = yt_watch_history %>% html_nodes(".header-cell")
+yt_watch_content = yt_watch_history %>% html_nodes(".content-cell")
+
+yt_or_music = yt_watch_header %>% html_text()
+
+video_url = str_match(yt_watch_content, "\"(https://www.youtube.com/watch\\?v=[a-zA-Z0-9-_]*)\">.*</a>")
+video_url = video_url[seq(1, 3*length(yt_or_music), 3), 2]
+
+video_id = str_match(yt_watch_content, "watch\\?v=([a-zA-Z0-9-_]*)")
+video_id = video_id[seq(1, 3*length(yt_or_music), 3), 2]
+
+video_title = str_match(yt_watch_content, "watch\\?v=[a-zA-Z0-9-_]*\">(.*)</a><br><a ")
+video_title = video_title[seq(1, 3*length(yt_or_music), 3), 2]
+
+channel_name = str_match(yt_watch_content, "channel\\/[a-zA-Z0-9-_]*\">(.*)</a>")
+channel_name = channel_name[seq(1, 3*length(yt_or_music), 3), 2]
+
+timestamp = str_match(yt_watch_content, "<br>([A-Z].*)</div>")
+timestamp = timestamp[seq(1, 3*length(yt_or_music), 3), 2]
+
+df = data.frame(video_id, yt_or_music, video_url, video_title, channel_name, timestamp)
+
+head(df, 5)
+```
+
+```{r}
+df[["timestamp_posix"]] = strptime(df$timestamp, "%b %d, %Y, %I:%M:%S %p SGT")
+df = df %>% select(-c("timestamp"))
+
+head(df, 5)
+```
+
+```{r}
+dim(df)
+df = na.omit(df)
+dim(df)
+```
+
+```{r}
+api_key = "[YOUR-API-KEY-HERE]"
+connection_url = "https://www.googleapis.com/youtube/v3/videos"
+```
+
+```{r}
+get_request_url <- function(video_id) {
+  
+  connection_url = paste0(connection_url, "?key=", api_key)
+  connection_url = paste0(connection_url, "&id=", video_id)
+  connection_url = paste0(connection_url, "&fields=", "items(id,snippet(channelId,title,categoryId))")
+  connection_url = paste0(connection_url, "&part=", "snippet")
+  
+  return (connection_url)
+  
+}
+```
+
+```{r}
+get_response <- function(request_url) {
+  
+  return (curl_fetch_memory(request_url))
+  
+}
+```
+
+```{r}
+get_meta_data <- function(request_url) {
+  
+  response = get_response(request_url)
+  data = fromJSON(rawToChar(response$content))
+  df = cbind(id = data$items$id, data$items$snippet)
+  
+  return (df)
+  
+}
+```
+
+```{r}
+unique_ids = unique(df$video_id)
+
+length(unique_ids)
+```
+
+```{r}
+meta_df = data.frame(video_id = c(), video_title = c(), channel_id = c(), category_id = c())
+
+for (id in unique_ids) {
+  
+  request_url = get_request_url(id)
+  temp_df = get_meta_data(request_url)
+  
+  if (!is.null(temp_df)) {
+    names(temp_df) = c("video_id", "channel_id", "video_title", "category_id")
+    meta_df = rbind(meta_df, temp_df)
+  }
+  
+}
+
+head(meta_df, 5)
+dim(meta_df)
+```
+
+```{r}
+merged_df = df %>% 
+            select(-c("video_title")) %>% 
+            merge(meta_df, by = "video_id", all.x = TRUE) %>%
+            na.omit()
+
+dim(merged_df)
+head(merged_df, 5)
+```
+
+```{r}
+music_df = merged_df %>%
+           select(c("video_id", "yt_or_music")) %>%
+           filter(yt_or_music == "YouTube Music") %>%
+           select(c("video_id")) %>%
+           group_by(video_id)
+
+unique_music_ids = unique(music_df$video_id)
+length(unique_music_ids)
+```
+
+```{r}
+get_request_url <- function(video_id) {
+  
+  connection_url = paste0(connection_url, "?part=", "topicDetails")
+  connection_url = paste0(connection_url, "&id=", video_id)
+  connection_url = paste0(connection_url, "&fields=", "items%2FtopicDetails%2FtopicCategories")
+  connection_url = paste0(connection_url, "&key=", api_key)
+  
+  return (connection_url)
+  
+}
+```
+
+```{r}
+get_genres <- function(video_id) {
+  
+  response = GET(get_request_url(id))
+  genres = ""
+  for (x in content(response)$items[[1]]$topicDetails$topicCategories) {
+    genre = gsub("_", " ", sub("^.+wiki/", "", x))
+    if (genre == "Music") {
+      next
+    }
+    if (genres == "") {
+      genres = genre
+    }
+    else {
+      genres = paste0(genres, ", ", genre)
+    }
+  }
+  
+  return (data.frame(id, genres))
+  
+}
+```
+
+```{r}
+genres_df = data.frame(id = c(), genres = c())
+
+for (id in unique_music_ids) {
+  
+  temp_df = get_genres(id)
+  names(temp_df) = c("id", "genres")
+  genres_df = rbind(genres_df, temp_df)
+
+}
+        
+head(genres_df, 5)
+```
+
+```{r}
+dates = merged_df %>% select(video_id, timestamp_posix)
+
+dim(dates)
+head(dates, 5)
+
+meta_data = merged_df %>% select(video_id, yt_or_music, channel_id, category_id)
+meta_data = meta_data[!duplicated(meta_data$video_id), ]
+
+dim(meta_data)
+head(meta_data, 5)
+
+videos = merged_df %>% select(video_id, video_title)
+videos = videos[!duplicated(videos$video_id), ]
+
+dim(videos)
+head(videos, 5)
+
+channels = merged_df %>% select(channel_id, channel_name)
+channels = channels[!duplicated(channels$channel_id), ]
+
+dim(channels)
+head(channels, 5)
+```
+
+```{r}
+write.csv(x = dates, file = "./Data/dates.csv", row.names = FALSE)
+write.csv(x = meta_data, file = "./Data/meta_data.csv", row.names = FALSE)
+write.csv(x = videos, file = "./Data/videos.csv", row.names = FALSE)
+write.csv(x = channels, file = "./Data/channels.csv", row.names = FALSE)
+write.csv(x = genres_df, file = "./Data/genres.csv", row.names = FALSE)
+```
