@@ -1,0 +1,6 @@
+[submodule "100-days-of-code/VinVL-Captioning"]
+	path = 100-days-of-code/VinVL-Captioning
+	url = https://github.com/ignasa007/VinVL-Captioning.git
+[submodule "100-days-of-code/Tensor-Puzzles"]
+	path = 100-days-of-code/Tensor-Puzzles
+	url = https://github.com/ignasa007/Tensor-Puzzles.git
