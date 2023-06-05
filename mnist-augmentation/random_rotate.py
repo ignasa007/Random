@@ -1,17 +1,17 @@
 from torch import Tensor
-import torchvision.transforms as T
-import torchvision.transforms.functional as F
+from torchvision.transforms import RandomRotation
+from torchvision.transforms.functional import InterpolationMode, get_dimensions, rotate
 
-class RandomRotation(T.RandomRotation):
+class RandomRotation(RandomRotation):
 
-    def __init__(self, degrees, interpolation=F.InterpolationMode.NEAREST, expand=False, center=None, fill=0):
+    def __init__(self, degrees, interpolation=InterpolationMode.NEAREST, expand=False, center=None, fill=0):
 
         super().__init__(degrees, interpolation=interpolation, expand=expand, center=center, fill=fill)
 
     def forward(self, img):
 
         fill = self.fill
-        channels, _, _ = F.get_dimensions(img)
+        channels, _, _ = get_dimensions(img)
         if isinstance(img, Tensor):
             if isinstance(fill, (int, float)):
                 fill = [float(fill)] * channels
@@ -19,15 +19,16 @@ class RandomRotation(T.RandomRotation):
                 fill = [float(f) for f in fill]
         angle = self.get_params(self.degrees)
 
-        return F.rotate(img, angle, self.interpolation, self.expand, self.center, fill), angle
+        return rotate(img, angle, self.interpolation, self.expand, self.center, fill), angle
 
 if __name__ == '__main__':
 
     import os
     import argparse
+    from random import randint
 
-    from torch import randint
     from torchvision.datasets import MNIST
+    from torchvision.transforms import ToTensor
     import matplotlib.pyplot as plt
 
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
@@ -38,14 +39,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     assert os.path.exists(f'{args.root}/MNIST/raw'), f'{args.root}/MNIST/raw does not exist, check the root path'
-    mnist = MNIST(args.root, download=False, train=True, transform=T.ToTensor()) 
+    mnist = MNIST(args.root, download=False, train=True, transform=ToTensor()) 
 
-    fig = plt.figure(figsize=(8,8))
+    fig = plt.figure(figsize=(8, 8))
 
-    img, _ = mnist[randint(len(mnist), size=(1,)).item()]
+    img, label = mnist[randint(0, len(mnist)+1)]
     fig.add_subplot(1, 2, 1)
     plt.imshow(img.squeeze(), cmap='gray')
-    plt.title('Original')
+    plt.title(f'Original, label = {label}')
     plt.axis('off')
 
     transformed_img, angle = RandomRotation(degrees=args.degrees)(img)

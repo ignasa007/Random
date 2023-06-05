@@ -1,10 +1,10 @@
 import os
 import argparse
+from random import randint
 
-import matplotlib.pyplot as plt
-from torch import randint
 from torchvision.datasets import MNIST
 from torchvision.transforms import ToTensor
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root', default='.', type=str, help='root directory of dataset where MNIST/raw/* exist')
@@ -16,9 +16,9 @@ args = parser.parse_args()
 assert os.path.exists(f'{args.root}/MNIST/raw'), f'{args.root}/MNIST/raw does not exist, check the root path'
 mnist = MNIST(args.root, download=False, train=args.train, transform=ToTensor()) 
 
-fig = plt.figure(figsize=(8,8))
+fig = plt.figure(figsize=(8, 8))
 for i in range(1, args.nrows*args.ncols+1):
-    idx = randint(len(mnist), size=(1,)).item()
+    idx = randint(0, len(mnist)+1)
     img, label = mnist[idx]
     fig.add_subplot(args.nrows, args.ncols, i)
     plt.imshow(img.squeeze(), cmap='gray')
